@@ -24,6 +24,12 @@ struct PanktiraApp: App {
         }
         .defaultSize(width: 900, height: 600)
         .commands {
+            CommandGroup(replacing: .appInfo) {
+                Button("About Panktira") {
+                    showAboutPanel()
+                }
+            }
+
             // File menu
             CommandGroup(replacing: .newItem) {
                 Button {
@@ -120,7 +126,12 @@ struct PanktiraApp: App {
                 .keyboardShortcut("x", modifiers: .command)
 
                 Button {
-                    NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil)
+                    if let responder = NSApp.keyWindow?.firstResponder,
+                       responder is NSTextView {
+                        NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil)
+                    } else {
+                        appState.activeTab.copySelectedCell()
+                    }
                 } label: {
                     Label("Copy", systemImage: "doc.on.doc")
                 }
@@ -302,6 +313,29 @@ struct PanktiraApp: App {
 
 
         }
+    }
+
+    private func showAboutPanel() {
+        let executableDate = Bundle.main.executableURL.flatMap { url in
+            try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+        }
+
+        let formatter = DateFormatter()
+        formatter.dateStyle = .long
+        formatter.timeStyle = .none
+
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.alignment = .center
+        let credits = NSAttributedString(
+            string: "Date: \(formatter.string(from: executableDate ?? Date()))",
+            attributes: [
+                .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+                .foregroundColor: NSColor.labelColor,
+                .paragraphStyle: paragraphStyle
+            ]
+        )
+
+        NSApp.orderFrontStandardAboutPanel(options: [.credits: credits])
     }
 }
 

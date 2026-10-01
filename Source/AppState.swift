@@ -193,6 +193,16 @@ final class TabState: Identifiable {
         }
     }
 
+    /// Selects A1 when the document contains at least one data cell.
+    func selectFirstCell() {
+        if document.rowCount > 0, document.columnCount > 0 {
+            selection = .single(row: 0, column: 0)
+        } else {
+            selection = nil
+        }
+        extraSelections.removeAll()
+    }
+
     /// Select a single cell, clearing any range and extra selections.
     func selectCell(row: Int, column: Int) {
         selection = .single(row: row, column: column)
@@ -254,6 +264,35 @@ final class TabState: Identifiable {
         extraSelections.removeAll()
     }
 
+    /// Selects a data cell from an A1-style address and returns its position when valid.
+    func selectCell(atAddress address: String) -> CellPosition? {
+        let normalized = address.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        let letters = normalized.prefix { $0.isASCII && $0.isLetter }
+        let digits = normalized.dropFirst(letters.count)
+
+        guard !letters.isEmpty,
+              !digits.isEmpty,
+              digits.allSatisfy({ $0.isASCII && $0.isNumber }),
+              let rowNumber = Int(digits),
+              rowNumber > 0 else { return nil }
+
+        var columnNumber = 0
+        for scalar in letters.unicodeScalars {
+            let value = Int(scalar.value) - Int(UnicodeScalar("A").value) + 1
+            let (multiplied, multiplicationOverflow) = columnNumber.multipliedReportingOverflow(by: 26)
+            let (next, additionOverflow) = multiplied.addingReportingOverflow(value)
+            guard !multiplicationOverflow, !additionOverflow else { return nil }
+            columnNumber = next
+        }
+
+        let position = CellPosition(row: rowNumber - 1, column: columnNumber - 1)
+        guard position.row < document.rowCount,
+              position.column < document.columnCount else { return nil }
+
+        selectCell(row: position.row, column: position.column)
+        return position
+    }
+
     /// Display label for the currently selected cell, e.g. "A1", "B", or "A1:C3".
     var selectedCellAddress: String? {
         guard let sel = selection else { return nil }
@@ -275,6 +314,14 @@ final class TabState: Identifiable {
             return document.headerValue(column: sel.anchorColumn)
         }
         return document.cellValue(row: sel.anchorRow, column: sel.anchorColumn)
+    }
+
+    /// Copies the active cell's value to the system pasteboard.
+    func copySelectedCell() {
+        guard selection != nil else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(selectedCellValue, forType: .string)
     }
 
     // MARK: - Editing
@@ -618,6 +665,7 @@ final class TabState: Identifiable {
 
     init() {
         syncColumnWidths()
+        selectFirstCell()
     }
 }
 
@@ -765,8 +813,7 @@ final class AppState {
         let tab = activeTab
         confirmDiscardingChanges(on: tab) {
             tab.document.newDocument()
-            tab.selection = nil
-            tab.extraSelections.removeAll()
+            tab.selectFirstCell()
             tab.resetColumnWidths()
         }
     }
@@ -775,8 +822,7 @@ final class AppState {
         let tab = activeTab
         confirmDiscardingChanges(on: tab) {
             if tab.document.openFile() {
-                tab.selection = nil
-                tab.extraSelections.removeAll()
+                tab.selectFirstCell()
                 tab.resetColumnWidths()
             }
         }
@@ -786,8 +832,7 @@ final class AppState {
         let tab = activeTab
         confirmDiscardingChanges(on: tab) {
             tab.document.loadFile(at: url)
-            tab.selection = nil
-            tab.extraSelections.removeAll()
+            tab.selectFirstCell()
             tab.resetColumnWidths()
         }
     }

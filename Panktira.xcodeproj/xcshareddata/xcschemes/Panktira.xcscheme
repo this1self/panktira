@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Scheme
+   LastUpgradeVersion = "2700"
+   version = "1.7">
+   <BuildAction
+      parallelizeBuildables = "YES"
+      buildImplicitDependencies = "YES"
+      buildArchitectures = "Automatic">
+      <PostActions>
+         <ExecutionAction
+            ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
+            <ActionContent
+               title = "Install Release Build"
+               scriptText = "if [ &quot;$CONFIGURATION&quot; != &quot;Release&quot; ]; then&#10;    exit 0&#10;fi&#10;&#10;source=&quot;$BUILT_PRODUCTS_DIR/$FULL_PRODUCT_NAME&quot;&#10;destination=&quot;/Applications/$FULL_PRODUCT_NAME&quot;&#10;&#10;if [ ! -d &quot;$source&quot; ]; then&#10;    echo &quot;error: Built app was not found at $source&quot;&#10;    exit 1&#10;fi&#10;&#10;if [ -w &quot;/Applications&quot; ]; then&#10;    /usr/bin/ditto &quot;$source&quot; &quot;$destination&quot;&#10;else&#10;    /usr/bin/osascript - &quot;$source&quot; &quot;$destination&quot; &lt;&lt;&apos;APPLESCRIPT&apos;&#10;on run argv&#10;    do shell script &quot;/usr/bin/ditto &quot; &amp; quoted form of item 1 of argv &amp; &quot; &quot; &amp; quoted form of item 2 of argv with administrator privileges&#10;end run&#10;APPLESCRIPT&#10;fi&#10;">
+               <EnvironmentBuildable>
+                  <BuildableReference
+                     BuildableIdentifier = "primary"
+                     BlueprintIdentifier = "188D0E542F9028F40062BA16"
+                     BuildableName = "Panktira.app"
+                     BlueprintName = "Panktira"
+                     ReferencedContainer = "container:Panktira.xcodeproj">
+                  </BuildableReference>
+               </EnvironmentBuildable>
+            </ActionContent>
+         </ExecutionAction>
+      </PostActions>
+      <BuildActionEntries>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
+            buildForArchiving = "YES"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "188D0E542F9028F40062BA16"
+               BuildableName = "Panktira.app"
+               BlueprintName = "Panktira"
+               ReferencedContainer = "container:Panktira.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
+      </BuildActionEntries>
+   </BuildAction>
+   <TestAction
+      buildConfiguration = "Debug"
+      selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
+      selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
+      shouldUseLaunchSchemeArgsEnv = "YES"
+      shouldAutocreateTestPlan = "YES">
+   </TestAction>
+   <LaunchAction
+      buildConfiguration = "Release"
+      selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
+      selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
+      launchStyle = "0"
+      useCustomWorkingDirectory = "NO"
+      ignoresPersistentStateOnLaunch = "NO"
+      debugDocumentVersioning = "YES"
+      debugServiceExtension = "internal"
+      allowLocationSimulation = "YES">
+      <BuildableProductRunnable
+         runnableDebuggingMode = "0">
+         <BuildableReference
+            BuildableIdentifier = "primary"
+            BlueprintIdentifier = "188D0E542F9028F40062BA16"
+            BuildableName = "Panktira.app"
+            BlueprintName = "Panktira"
+            ReferencedContainer = "container:Panktira.xcodeproj">
+         </BuildableReference>
+      </BuildableProductRunnable>
+   </LaunchAction>
+   <ProfileAction
+      buildConfiguration = "Release"
+      shouldUseLaunchSchemeArgsEnv = "YES"
+      savedToolIdentifier = ""
+      useCustomWorkingDirectory = "NO"
+      debugDocumentVersioning = "YES">
+      <BuildableProductRunnable
+         runnableDebuggingMode = "0">
+         <BuildableReference
+            BuildableIdentifier = "primary"
+            BlueprintIdentifier = "188D0E542F9028F40062BA16"
+            BuildableName = "Panktira.app"
+            BlueprintName = "Panktira"
+            ReferencedContainer = "container:Panktira.xcodeproj">
+         </BuildableReference>
+      </BuildableProductRunnable>
+   </ProfileAction>
+   <AnalyzeAction
+      buildConfiguration = "Debug">
+   </AnalyzeAction>
+   <ArchiveAction
+      buildConfiguration = "Release"
+      revealArchiveInOrganizer = "YES">
+   </ArchiveAction>
+</Scheme>

@@ -26,7 +26,7 @@ Impact: user data loss.
 
 Suggested direction: make save APIs completion/result-based, e.g. `save(completion: (Bool) -> Void)`, and only continue destructive actions after `true`.
 
-- [ ] Fixed?
+- [x] Fixed — `save()`/`saveAs()` now use synchronous `runModal()` and return `Bool`. All callers check the result before proceeding with destructive actions.
 
 ### 2. Active cell edits are not committed before save or close
 
@@ -40,7 +40,7 @@ Impact: visible user input can be omitted from saved output or lost on close.
 
 Suggested direction: centralize document actions through `TabState.commitEditIfNeeded()` before dirty checks and writes.
 
-- [ ] Fixed?
+- [x] Fixed — Added `TabState.commitEditIfNeeded()`. Called before dirty checks in `closeTab`, `confirmDiscardingChanges`, `windowShouldClose`, and before `save()`/`saveAs()` in menu commands.
 
 ## P1 Findings
 
@@ -211,7 +211,7 @@ Likely behavior: recent documents do nothing useful or bypass the tab/dirty-stat
 
 Suggested direction: pass an `AppState` action into `RecentDocumentsMenu` and call `safeLoadFile(at:)`.
 
-- [ ] Fixed?
+- [x] Fixed — `RecentDocumentsMenu` now takes `appState` and calls `safeLoadFile(at:)` instead of `NSDocumentController.shared.openDocument`.
 
 ### 18. CSV formula injection is not mitigated on export
 

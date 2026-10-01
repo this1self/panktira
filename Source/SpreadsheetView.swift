@@ -11,6 +11,12 @@ struct CellPosition: Equatable, Hashable {
     let column: Int
 }
 
+/// A uniquely identified request to reveal a cell in the spreadsheet.
+struct CellNavigationRequest: Equatable {
+    let id = UUID()
+    let position: CellPosition
+}
+
 // MARK: - SpreadsheetView
 
 struct SpreadsheetView: View {
@@ -18,6 +24,7 @@ struct SpreadsheetView: View {
     var highlightedCells: Set<CellPosition>
     var highlightedRows: Set<Int>
     var focusedSearchCell: CellPosition?
+    var navigationRequest: CellNavigationRequest?
     @Binding var selection: CellRange?
     @Binding var extraSelections: Set<CellPosition>
     @Binding var isEditing: Bool
@@ -107,6 +114,20 @@ struct SpreadsheetView: View {
         }
     }
 
+    private func scroll(to cell: CellPosition, using proxy: ScrollViewProxy) {
+        // Materialize the lazy row first, then reveal the exact cell on the next layout pass.
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            proxy.scrollTo(cell.row)
+        }
+        DispatchQueue.main.async {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                proxy.scrollTo(cell, anchor: .center)
+            }
+        }
+    }
+
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView([.horizontal, .vertical]) {
@@ -136,20 +157,11 @@ struct SpreadsheetView: View {
             }
             .onChange(of: focusedSearchCell) { _, newValue in
                 guard let cell = newValue else { return }
-                // Instantly scroll to the row (no animation) so LazyVStack
-                // materializes it and makes the cell ID available.
-                var transaction = Transaction()
-                transaction.disablesAnimations = true
-                withTransaction(transaction) {
-                    proxy.scrollTo(cell.row)
-                }
-                // On the next layout pass the cell exists — do a single
-                // smooth animated scroll that covers both axes at once.
-                DispatchQueue.main.async {
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        proxy.scrollTo(cell, anchor: .center)
-                    }
-                }
+                scroll(to: cell, using: proxy)
+            }
+            .onChange(of: navigationRequest) { _, request in
+                guard let request else { return }
+                scroll(to: request.position, using: proxy)
             }
         }
     }
@@ -167,7 +179,12 @@ struct SpreadsheetView: View {
                         isSelected: (selection?.containsColumn(colIndex) ?? false) || extraSelections.contains(where: { $0.column == colIndex }),
                         width: widthForColumn(colIndex),
                         height: cellHeight,
-                        fontSize: captionFontSize
+                        fontSize: captionFontSize,
+                        sortOrder: document.sortOrder(for: colIndex),
+                        onCycleSort: {
+                            if isEditing { onCommitEdit() }
+                            document.cycleSort(for: colIndex)
+                        }
                     )
                     .overlay(alignment: .trailing) {
                         ColumnResizeHandle(
@@ -506,15 +523,49 @@ struct ColumnLetterCell: View, Equatable {
     let width: CGFloat
     let height: CGFloat
     let fontSize: CGFloat
+    let sortOrder: ColumnSortState.Order?
+    let onCycleSort: () -> Void
+
+    static func == (lhs: ColumnLetterCell, rhs: ColumnLetterCell) -> Bool {
+        lhs.index == rhs.index
+            && lhs.isSelected == rhs.isSelected
+            && lhs.width == rhs.width
+            && lhs.height == rhs.height
+            && lhs.fontSize == rhs.fontSize
+            && lhs.sortOrder == rhs.sortOrder
+    }
+
+    private var sortSymbol: String {
+        switch sortOrder {
+        case .ascending:
+            "arrow.up"
+        case .descending:
+            "arrow.down"
+        case nil:
+            "arrow.up.arrow.down"
+        }
+    }
 
     var body: some View {
         ZStack {
             Rectangle()
                 .fill(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
                 .background(.bar)
-            Text(CSVDocument.columnLetter(for: index))
-                .font(.system(size: fontSize, weight: .semibold))
-                .foregroundStyle(.secondary)
+            HStack(spacing: 3) {
+                Text(CSVDocument.columnLetter(for: index))
+                    .font(.system(size: fontSize, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                Button(action: onCycleSort) {
+                    Label("Sort", systemImage: sortSymbol)
+                        .labelStyle(.iconOnly)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(sortOrder == nil ? .secondary : Color.accentColor)
+                .help("Sort")
+            }
+            .padding(.leading, 6)
+            .padding(.trailing, 10)
         }
         .frame(width: width, height: height)
         .border(Color.gray.opacity(0.2), width: 0.5)

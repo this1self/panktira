@@ -138,6 +138,10 @@ private struct TabBarItem: View {
 private struct TabContentView: View {
     @Bindable var appState: AppState
     @Bindable var tabState: TabState
+    @State private var addressText = ""
+    @State private var addressBeforeEditing = ""
+    @State private var isEditingAddress = false
+    @State private var navigationRequest: CellNavigationRequest?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -161,6 +165,7 @@ private struct TabContentView: View {
                 highlightedCells: tabState.highlightedCells,
                 highlightedRows: tabState.highlightedRows,
                 focusedSearchCell: tabState.focusedSearchCell,
+                navigationRequest: navigationRequest,
                 selection: Binding(
                     get: { tabState.selection },
                     set: { tabState.selection = $0 }
@@ -200,22 +205,65 @@ private struct TabContentView: View {
     // MARK: - Formula Bar
 
     @FocusState private var formulaBarFocused: Bool
+    @FocusState private var addressFieldFocused: Bool
+
+    private func navigateToEnteredAddress() {
+        if let position = tabState.selectCell(atAddress: addressText) {
+            addressText = tabState.selectedCellAddress ?? ""
+            addressBeforeEditing = addressText
+            navigationRequest = CellNavigationRequest(position: position)
+        } else {
+            addressText = addressBeforeEditing
+        }
+        addressFieldFocused = false
+        isEditingAddress = false
+    }
 
     private var formulaBar: some View {
         HStack(spacing: 8) {
-            Text(tabState.selectedCellAddress ?? "—")
-                .font(.system(size: tabState.scaledBodyFontSize, weight: .medium, design: .monospaced))
-                .foregroundStyle(tabState.selectedCellAddress != nil ? .primary : .tertiary)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-                .frame(minWidth: 48, alignment: .center)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(.background, in: RoundedRectangle(cornerRadius: 4))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 4)
-                        .strokeBorder(Color.gray.opacity(0.25), lineWidth: 0.5)
-                )
+            if isEditingAddress {
+                TextField("Cell", text: $addressText)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: tabState.scaledBodyFontSize, weight: .medium, design: .monospaced))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(1)
+                    .frame(width: 64)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(.background, in: RoundedRectangle(cornerRadius: 4))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .strokeBorder(Color.accentColor, lineWidth: 1)
+                    )
+                    .focused($addressFieldFocused)
+                    .onSubmit { navigateToEnteredAddress() }
+                    .onExitCommand {
+                        addressText = addressBeforeEditing
+                        addressFieldFocused = false
+                        isEditingAddress = false
+                    }
+            } else {
+                Text(addressText.isEmpty ? "—" : addressText)
+                    .font(.system(size: tabState.scaledBodyFontSize, weight: .medium, design: .monospaced))
+                    .foregroundStyle(addressText.isEmpty ? .tertiary : .primary)
+                    .lineLimit(1)
+                    .frame(width: 64)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(.background, in: RoundedRectangle(cornerRadius: 4))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .strokeBorder(Color.gray.opacity(0.25), lineWidth: 0.5)
+                    )
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        tabState.commitEditIfNeeded()
+                        isEditingAddress = true
+                        DispatchQueue.main.async {
+                            addressFieldFocused = true
+                        }
+                    }
+            }
 
             Divider()
                 .frame(height: 18)
@@ -236,6 +284,10 @@ private struct TabContentView: View {
                     .font(.system(size: tabState.scaledBodyFontSize))
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        tabState.beginEditing()
+                    }
             } else {
                 Text("No cell selected")
                     .font(.system(size: tabState.scaledBodyFontSize))
@@ -243,6 +295,25 @@ private struct TabContentView: View {
             }
 
             Spacer()
+        }
+        .onAppear {
+            addressText = tabState.selectedCellAddress ?? ""
+            addressBeforeEditing = addressText
+        }
+        .onChange(of: tabState.selectedCellAddress) { _, address in
+            // A selection change always wins over an unfinished address edit.
+            addressFieldFocused = false
+            isEditingAddress = false
+            addressText = address ?? ""
+            addressBeforeEditing = addressText
+        }
+        .onChange(of: addressFieldFocused) { _, focused in
+            if focused {
+                addressBeforeEditing = tabState.selectedCellAddress ?? ""
+                addressText = addressBeforeEditing
+            } else {
+                isEditingAddress = false
+            }
         }
         .onChange(of: tabState.isEditing) { _, editing in
             if editing {
@@ -394,7 +465,15 @@ private struct KeyboardEventHandler: NSViewRepresentable {
                     return event
                 }
 
-                let shiftHeld = event.modifierFlags.contains(.shift)
+                let modifiers = event.modifierFlags
+                let shiftHeld = modifiers.contains(.shift)
+                let commandModifiers: NSEvent.ModifierFlags = [.command, .control, .option]
+
+                // Let command-modified arrows reach SwiftUI's menu key equivalents.
+                // This includes the Control-Option shortcuts for moving rows and columns.
+                if !modifiers.intersection(commandModifiers).isEmpty {
+                    return event
+                }
 
                 switch event.keyCode {
                 case 126: // Up arrow

@@ -28,6 +28,19 @@ struct SearchOptions {
 struct CSVState: Equatable {
     var rows: [[String]]
     var headerRow: [String]
+    var sortState: ColumnSortState?
+    var rowsBeforeSorting: [[String]]?
+}
+
+/// The current sort state for a spreadsheet column.
+struct ColumnSortState: Equatable {
+    enum Order: Equatable {
+        case ascending
+        case descending
+    }
+
+    let column: Int
+    let order: Order
 }
 
 /// Observable document model that manages CSV data, undo/redo, and file I/O.
@@ -56,6 +69,10 @@ final class CSVDocument {
     private var redoStack: [CSVState] = []
     private var isRestoringState = false
 
+    /// The unmodified row order captured before the current column sort.
+    private var rowsBeforeSorting: [[String]]?
+    private(set) var sortState: ColumnSortState?
+
     // MARK: - Column Count
 
     var columnCount: Int {
@@ -69,7 +86,12 @@ final class CSVDocument {
     // MARK: - Snapshot Helpers
 
     private var currentState: CSVState {
-        CSVState(rows: rows, headerRow: headerRow)
+        CSVState(
+            rows: rows,
+            headerRow: headerRow,
+            sortState: sortState,
+            rowsBeforeSorting: rowsBeforeSorting
+        )
     }
 
     /// Push the current state onto the undo stack before mutating.
@@ -84,6 +106,8 @@ final class CSVDocument {
         isRestoringState = true
         headerRow = state.headerRow
         rows = state.rows
+        sortState = state.sortState
+        rowsBeforeSorting = state.rowsBeforeSorting
         isModified = true
         isRestoringState = false
     }
@@ -135,6 +159,63 @@ final class CSVDocument {
     func headerValue(column: Int) -> String {
         guard column >= 0, column < headerRow.count else { return "" }
         return headerRow[column]
+    }
+
+    // MARK: - Sorting
+
+    func sortOrder(for column: Int) -> ColumnSortState.Order? {
+        guard sortState?.column == column else { return nil }
+        return sortState?.order
+    }
+
+    /// Cycles a column through ascending, descending, and its original order.
+    func cycleSort(for column: Int) {
+        guard column >= 0, column < columnCount else { return }
+
+        switch sortState {
+        case let state? where state.column == column && state.order == .ascending:
+            pushUndo()
+            applySort(column: column, order: .descending)
+        case let state? where state.column == column && state.order == .descending:
+            pushUndo()
+            rows = rowsBeforeSorting ?? rows
+            rowsBeforeSorting = nil
+            sortState = nil
+        default:
+            pushUndo()
+            if rowsBeforeSorting == nil {
+                rowsBeforeSorting = rows
+            }
+            applySort(column: column, order: .ascending)
+        }
+    }
+
+    private func applySort(column: Int, order: ColumnSortState.Order) {
+        let sourceRows = rowsBeforeSorting ?? rows
+        rows = sourceRows
+            .enumerated()
+            .sorted { lhs, rhs in
+                let comparison = value(at: column, in: lhs.element)
+                    .localizedStandardCompare(value(at: column, in: rhs.element))
+
+                if comparison == .orderedSame {
+                    return lhs.offset < rhs.offset
+                }
+
+                switch order {
+                case .ascending:
+                    return comparison == .orderedAscending
+                case .descending:
+                    return comparison == .orderedDescending
+                }
+            }
+            .map(\.element)
+        sortState = ColumnSortState(column: column, order: order)
+    }
+
+    private func value(at column: Int, in row: [String]) -> String {
+        guard column < row.count else { return "" }
+        return row[column]
     }
 
     // MARK: - Row Operations
@@ -260,6 +341,8 @@ final class CSVDocument {
     func loadFromCSV(_ text: String) {
         undoStack.removeAll()
         redoStack.removeAll()
+        sortState = nil
+        rowsBeforeSorting = nil
 
         let parsed = CSVDocument.parseCSV(text)
         guard !parsed.isEmpty else {
@@ -399,6 +482,8 @@ final class CSVDocument {
     func newDocument() {
         undoStack.removeAll()
         redoStack.removeAll()
+        sortState = nil
+        rowsBeforeSorting = nil
         headerRow = ["A", "B", "C"]
         rows = [
             ["", "", ""],
