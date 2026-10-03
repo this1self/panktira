@@ -73,7 +73,7 @@ struct ContentView: View {
         _ = provider.loadObject(ofClass: URL.self) { url, _ in
             if let url {
                 DispatchQueue.main.async {
-                    appState.safeLoadFile(at: url)
+                    appState.openExternalFile(at: url)
                 }
             }
         }

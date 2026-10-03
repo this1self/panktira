@@ -5,22 +5,35 @@
 
 import SwiftUI
 
+/// Intercepts Finder/"Open With"/cold-launch file-open requests so they land as a new tab in the
+/// app's single window instead of letting AppKit spin up a second window for the same AppState.
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    var appState: AppState?
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        guard let appState else { return }
+        for url in urls {
+            appState.openExternalFile(at: url)
+        }
+        NSApp.activate(ignoringOtherApps: true)
+    }
+}
+
 @main
 struct PanktiraApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var appState = AppState()
 
     init() {
         // Disable the macOS native window tab bar — we use our own tab system.
         NSWindow.allowsAutomaticWindowTabbing = false
+        appDelegate.appState = appState
     }
 
     var body: some Scene {
         WindowGroup {
             ContentView(appState: appState)
                 .frame(minWidth: 600, minHeight: 400)
-                .onOpenURL { url in
-                    appState.safeLoadFile(at: url)
-                }
         }
         .defaultSize(width: 900, height: 600)
         .commands {
@@ -130,7 +143,7 @@ struct PanktiraApp: App {
                        responder is NSTextView {
                         NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil)
                     } else {
-                        appState.activeTab.copySelectedCell()
+                        appState.activeTab.copySelection()
                     }
                 } label: {
                     Label("Copy", systemImage: "doc.on.doc")
@@ -138,7 +151,12 @@ struct PanktiraApp: App {
                 .keyboardShortcut("c", modifiers: .command)
 
                 Button {
-                    NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil)
+                    if let responder = NSApp.keyWindow?.firstResponder,
+                       responder is NSTextView {
+                        NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil)
+                    } else {
+                        appState.activeTab.pasteFromPasteboard()
+                    }
                 } label: {
                     Label("Paste", systemImage: "doc.on.clipboard")
                 }
@@ -306,6 +324,24 @@ struct PanktiraApp: App {
                     Label("Actual Size", systemImage: "1.magnifyingglass")
                 }
                 .keyboardShortcut("0", modifiers: .command)
+
+                Divider()
+
+                Button {
+                    appState.selectNextTab()
+                } label: {
+                    Label("Switch to Next Tab", systemImage: "arrow.right.square")
+                }
+                .keyboardShortcut("]", modifiers: [.command, .shift])
+
+                Button {
+                    appState.selectPreviousTab()
+                } label: {
+                    Label("Switch to Previous Tab", systemImage: "arrow.left.square")
+                }
+                .keyboardShortcut("[", modifiers: [.command, .shift])
+
+                Divider()
             }
 
             // Remove system "Show All Tabs" / "Hide Tab Bar" from View menu

@@ -316,12 +316,48 @@ final class TabState: Identifiable {
         return document.cellValue(row: sel.anchorRow, column: sel.anchorColumn)
     }
 
-    /// Copies the active cell's value to the system pasteboard.
-    func copySelectedCell() {
-        guard selection != nil else { return }
+    /// Copies the current selection to the system pasteboard. A single cell copies its plain
+    /// value; a range copies as tab/newline-separated values (the standard spreadsheet format),
+    /// including the header row when it's part of the selection.
+    func copySelection() {
+        guard let sel = selection else { return }
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        pasteboard.setString(selectedCellValue, forType: .string)
+
+        if sel.isSingleCell && extraSelections.isEmpty {
+            pasteboard.setString(selectedCellValue, forType: .string)
+            return
+        }
+
+        var lines: [String] = []
+        for row in sel.minRow...sel.maxRow {
+            var fields: [String] = []
+            for column in sel.minColumn...sel.maxColumn {
+                let value = row == -1 ? document.headerValue(column: column) : document.cellValue(row: row, column: column)
+                fields.append(CSVDocument.escapeField(value, delimiter: "\t"))
+            }
+            lines.append(fields.joined(separator: "\t"))
+        }
+        pasteboard.setString(lines.joined(separator: "\n"), forType: .string)
+    }
+
+    /// Pastes tab-separated values from the system pasteboard into the grid, starting at the
+    /// selection's anchor cell and growing rows/columns as needed. Quoted fields (as produced by
+    /// `copySelection` or Excel/Numbers) may contain embedded newlines without starting a new row.
+    func pasteFromPasteboard() {
+        guard let sel = selection else { return }
+        guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else { return }
+
+        let values = CSVDocument.parseCSV(text, delimiter: "\t")
+        guard !values.isEmpty else { return }
+
+        document.pasteGrid(startRow: sel.anchorRow, startColumn: sel.anchorColumn, values: values)
+        syncColumnWidths()
+
+        let endRow = sel.anchorRow + values.count - 1
+        let endColumn = sel.anchorColumn + (values.map(\.count).max() ?? 1) - 1
+        selection = CellRange(anchorRow: sel.anchorRow, anchorColumn: sel.anchorColumn, extentRow: endRow, extentColumn: endColumn)
+        extraSelections.removeAll()
     }
 
     // MARK: - Editing
@@ -834,6 +870,23 @@ final class AppState {
             tab.document.loadFile(at: url)
             tab.selectFirstCell()
             tab.resetColumnWidths()
+        }
+    }
+
+    /// Opens a file from outside the app (Finder, "Open With", or a cold launch). Loads into the
+    /// active tab if it's still blank and untouched; otherwise opens a new tab, so the app's
+    /// single window gains a tab instead of a second window shadowing the same state.
+    func openExternalFile(at url: URL) {
+        let tab = activeTab
+        if tab.document.fileURL == nil, !tab.document.isModified {
+            tab.document.loadFile(at: url)
+            tab.selectFirstCell()
+            tab.resetColumnWidths()
+        } else {
+            newTab()
+            activeTab.document.loadFile(at: url)
+            activeTab.selectFirstCell()
+            activeTab.resetColumnWidths()
         }
     }
 }

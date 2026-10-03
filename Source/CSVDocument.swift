@@ -161,6 +161,51 @@ final class CSVDocument {
         return headerRow[column]
     }
 
+    // MARK: - Clipboard
+
+    /// Writes a rectangular grid of values starting at (startRow, startColumn), growing rows
+    /// and columns as needed to fit. `startRow == -1` targets the header row. Single undo entry.
+    func pasteGrid(startRow: Int, startColumn: Int, values: [[String]]) {
+        guard !values.isEmpty, startColumn >= 0 else { return }
+        pushUndo()
+        isRestoringState = true
+
+        let endRow = startRow + values.count - 1
+        let maxWidth = values.map(\.count).max() ?? 0
+        let endColumn = startColumn + maxWidth - 1
+
+        while columnCount <= endColumn {
+            headerRow.append(nextColumnLetter())
+            for i in 0..<rows.count {
+                rows[i].append("")
+            }
+        }
+
+        if endRow >= 0 {
+            while rows.count <= endRow {
+                rows.append(Array(repeating: "", count: columnCount))
+            }
+        }
+
+        for (offset, fields) in values.enumerated() {
+            let targetRow = startRow + offset
+            for (colOffset, value) in fields.enumerated() {
+                let column = startColumn + colOffset
+                if targetRow == -1 {
+                    headerRow[column] = value
+                } else {
+                    while rows[targetRow].count <= column {
+                        rows[targetRow].append("")
+                    }
+                    rows[targetRow][column] = value
+                }
+            }
+        }
+
+        isModified = true
+        isRestoringState = false
+    }
+
     // MARK: - Sorting
 
     func sortOrder(for column: Int) -> ColumnSortState.Order? {
@@ -376,17 +421,18 @@ final class CSVDocument {
         isModified = false
     }
 
-    /// RFC 4180-aware CSV parser handling quoted fields, embedded commas,
-    /// embedded newlines, and escaped quotes.
+    /// RFC 4180-aware parser handling quoted fields, embedded delimiters,
+    /// embedded newlines, and escaped quotes. Defaults to comma-delimited CSV;
+    /// pass `delimiter: "\t"` to parse the tab-separated clipboard format.
     ///
     /// Iterates over Unicode scalars (not Characters) so that CR+LF is always
     /// treated as two separate code points. Swift's `Character` type merges
     /// `\r\n` into a single grapheme cluster that doesn't match `"\r"` or `"\n"`.
-    static func parseCSV(_ text: String) -> [[String]] {
+    static func parseCSV(_ text: String, delimiter: Unicode.Scalar = Unicode.Scalar(0x2C)!) -> [[String]] {
         // Use integer-based Unicode.Scalar constants so Xcode preview thunks
         // don't rewrite them into __designTimeString() calls.
         let kQuote  = Unicode.Scalar(0x22)! // "
-        let kComma  = Unicode.Scalar(0x2C)! // ,
+        let kComma  = delimiter
         let kCR     = Unicode.Scalar(0x0D)! // \r
         let kLF     = Unicode.Scalar(0x0A)! // \n
 
@@ -471,7 +517,13 @@ final class CSVDocument {
     }
 
     private func escapeCSVField(_ field: String) -> String {
-        if field.contains(",") || field.contains("\"") || field.contains("\n") || field.contains("\r") {
+        CSVDocument.escapeField(field, delimiter: ",")
+    }
+
+    /// Quotes a field for serialization if it contains the delimiter, a quote, or a newline —
+    /// used both for CSV file output and for the tab-delimited clipboard format.
+    static func escapeField(_ field: String, delimiter: Character) -> String {
+        if field.contains(delimiter) || field.contains("\"") || field.contains("\n") || field.contains("\r") {
             return "\"" + field.replacingOccurrences(of: "\"", with: "\"\"") + "\""
         }
         return field
