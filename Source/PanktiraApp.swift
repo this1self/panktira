@@ -5,35 +5,28 @@
 
 import SwiftUI
 
-/// Intercepts Finder/"Open With"/cold-launch file-open requests so they land as a new tab in the
-/// app's single window instead of letting AppKit spin up a second window for the same AppState.
-final class AppDelegate: NSObject, NSApplicationDelegate {
-    var appState: AppState?
-
-    func application(_ application: NSApplication, open urls: [URL]) {
-        guard let appState else { return }
-        for url in urls {
-            appState.openExternalFile(at: url)
-        }
-        NSApp.activate(ignoringOtherApps: true)
-    }
-}
-
 @main
 struct PanktiraApp: App {
-    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var appState = AppState()
 
     init() {
         // Disable the macOS native window tab bar — we use our own tab system.
         NSWindow.allowsAutomaticWindowTabbing = false
-        appDelegate.appState = appState
     }
 
     var body: some Scene {
-        WindowGroup {
+        // `Window` (not `WindowGroup`) because Panktira is a single-window, multi-tab app — its
+        // own AppState/tab system is the only thing that should ever add a "document" to the UI.
+        // SwiftUI enforces that a `Window` scene has at most one instance, so externally-opened
+        // files (Finder, "Open With", Cmd+O) land in this one window via onOpenURL below instead
+        // of spawning additional OS windows that would need to be detected and closed after the
+        // fact.
+        Window("Panktira", id: "main") {
             ContentView(appState: appState)
                 .frame(minWidth: 600, minHeight: 400)
+                .onOpenURL { url in
+                    appState.openExternalFile(at: url)
+                }
         }
         .defaultSize(width: 900, height: 600)
         .commands {
@@ -163,6 +156,14 @@ struct PanktiraApp: App {
                 .keyboardShortcut("v", modifiers: .command)
 
                 Button {
+                    appState.activeTab.deleteSelectedRows()
+                } label: {
+                    Label("Delete", systemImage: "delete.left")
+                }
+                .keyboardShortcut(.delete, modifiers: [.command])
+                .disabled(appState.activeTab.selection == nil)
+
+                Button {
                     if let responder = NSApp.keyWindow?.firstResponder,
                        responder is NSTextView {
                         NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
@@ -247,8 +248,7 @@ struct PanktiraApp: App {
                     } label: {
                         Label("Delete Row(s)", systemImage: "minus.circle")
                     }
-                    .keyboardShortcut(.delete, modifiers: [.command])
-                    .disabled(appState.activeTab.selection == nil || appState.activeTab.selection?.minRow ?? -1 < 0)
+                    .disabled(appState.activeTab.selection == nil)
 
                     Button {
                         appState.activeTab.deleteSelectedColumns()
@@ -360,10 +360,15 @@ struct PanktiraApp: App {
         formatter.dateStyle = .long
         formatter.timeStyle = .none
 
+        let timeFormatter = DateFormatter()
+        timeFormatter.dateFormat = "HH:mm:ss"
+
+        let date = executableDate ?? Date()
+
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.alignment = .center
         let credits = NSAttributedString(
-            string: "Date: \(formatter.string(from: executableDate ?? Date()))",
+            string: "Date: \(formatter.string(from: date)) \(timeFormatter.string(from: date))",
             attributes: [
                 .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
                 .foregroundColor: NSColor.labelColor,

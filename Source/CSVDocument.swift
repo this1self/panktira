@@ -163,6 +163,42 @@ final class CSVDocument {
 
     // MARK: - Clipboard
 
+    /// Detects the delimiter used by pasted tabular text. Tabs win when both forms are
+    /// present because spreadsheet apps conventionally place tab-separated data on the pasteboard.
+    /// Delimiters inside quoted fields are ignored.
+    static func clipboardDelimiter(for text: String) -> Unicode.Scalar {
+        let quote = Unicode.Scalar(0x22)!
+        let comma = Unicode.Scalar(0x2C)!
+        let tab = Unicode.Scalar(0x09)!
+        let scalars = Array(text.unicodeScalars)
+        var commaCount = 0
+        var tabCount = 0
+        var insideQuotes = false
+        var index = 0
+
+        while index < scalars.count {
+            let scalar = scalars[index]
+            if scalar == quote {
+                if insideQuotes, index + 1 < scalars.count, scalars[index + 1] == quote {
+                    index += 2
+                    continue
+                }
+                insideQuotes.toggle()
+            } else if !insideQuotes {
+                if scalar == tab {
+                    tabCount += 1
+                } else if scalar == comma {
+                    commaCount += 1
+                }
+            }
+            index += 1
+        }
+
+        if tabCount > 0 { return tab }
+        if commaCount > 0 { return comma }
+        return tab
+    }
+
     /// Writes a rectangular grid of values starting at (startRow, startColumn), growing rows
     /// and columns as needed to fit. `startRow == -1` targets the header row. Single undo entry.
     func pasteGrid(startRow: Int, startColumn: Int, values: [[String]]) {
@@ -297,6 +333,44 @@ final class CSVDocument {
         rows.remove(at: index)
     }
 
+    /// Deletes a contiguous row range as one undoable operation. If every row is selected,
+    /// replaces them with one blank row so the spreadsheet remains editable.
+    func deleteRows(_ range: ClosedRange<Int>) {
+        let lowerBound = max(0, range.lowerBound)
+        let upperBound = min(range.upperBound, rows.count - 1)
+        guard lowerBound <= upperBound else { return }
+
+        pushUndo()
+        if lowerBound == 0, upperBound == rows.count - 1 {
+            rows = [Array(repeating: "", count: columnCount)]
+        } else {
+            rows.removeSubrange(lowerBound...upperBound)
+        }
+    }
+
+    /// Deletes the header record and any consecutively selected data rows beneath it.
+    /// The next remaining CSV record becomes the header. An empty document retains a blank
+    /// header and data row so the spreadsheet remains editable.
+    func deleteRowsIncludingHeader(through lastDataRow: Int) {
+        pushUndo()
+
+        let upperBound = min(lastDataRow, rows.count - 1)
+        if upperBound >= 0 {
+            rows.removeSubrange(0...upperBound)
+        }
+
+        if !rows.isEmpty {
+            headerRow = rows.removeFirst()
+            normalizeRows()
+        } else {
+            headerRow = Array(repeating: "", count: columnCount)
+        }
+
+        if rows.isEmpty {
+            rows = [Array(repeating: "", count: columnCount)]
+        }
+    }
+
     // MARK: - Column Operations
 
     /// Ensure every data row has exactly `columnCount` elements (pad or trim).
@@ -361,6 +435,28 @@ final class CSVDocument {
         headerRow.remove(at: index)
         for i in 0..<rows.count {
             rows[i].remove(at: index)
+        }
+    }
+
+    /// Deletes a contiguous column range as one undoable operation. If every column is selected,
+    /// replaces them with one blank column so the spreadsheet remains editable.
+    func deleteColumns(_ range: ClosedRange<Int>) {
+        let lowerBound = max(0, range.lowerBound)
+        let upperBound = min(range.upperBound, columnCount - 1)
+        guard lowerBound <= upperBound else { return }
+
+        pushUndo()
+        normalizeRows()
+        if lowerBound == 0, upperBound == columnCount - 1 {
+            headerRow = [CSVDocument.columnLetter(for: 0)]
+            for index in rows.indices {
+                rows[index] = [""]
+            }
+        } else {
+            headerRow.removeSubrange(lowerBound...upperBound)
+            for index in rows.indices {
+                rows[index].removeSubrange(lowerBound...upperBound)
+            }
         }
     }
 

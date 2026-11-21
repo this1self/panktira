@@ -341,14 +341,15 @@ final class TabState: Identifiable {
         pasteboard.setString(lines.joined(separator: "\n"), forType: .string)
     }
 
-    /// Pastes tab-separated values from the system pasteboard into the grid, starting at the
-    /// selection's anchor cell and growing rows/columns as needed. Quoted fields (as produced by
-    /// `copySelection` or Excel/Numbers) may contain embedded newlines without starting a new row.
+    /// Pastes tab- or comma-separated values from the system pasteboard into the grid, starting at
+    /// the selection's anchor cell and growing rows/columns as needed. Quoted fields may contain
+    /// embedded delimiters or newlines without starting a new cell or row.
     func pasteFromPasteboard() {
         guard let sel = selection else { return }
         guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else { return }
 
-        let values = CSVDocument.parseCSV(text, delimiter: "\t")
+        let delimiter = CSVDocument.clipboardDelimiter(for: text)
+        let values = CSVDocument.parseCSV(text, delimiter: delimiter)
         guard !values.isEmpty else { return }
 
         document.pasteGrid(startRow: sel.anchorRow, startColumn: sel.anchorColumn, values: values)
@@ -607,16 +608,22 @@ final class TabState: Identifiable {
 
     func deleteSelectedRows() {
         guard let sel = selection else { return }
+        if sel.minRow == -1 {
+            let lastDataRow = min(sel.maxRow, document.rowCount - 1)
+            document.deleteRowsIncludingHeader(through: lastDataRow)
+            let newColumn = min(sel.anchorColumn, document.columnCount - 1)
+            selection = .single(row: -1, column: newColumn)
+            extraSelections.removeAll()
+            return
+        }
+
         let minRow = max(0, sel.minRow)
         let maxRow = min(sel.maxRow, document.rowCount - 1)
         guard minRow <= maxRow else { return }
-        // Delete from bottom to top so indices stay valid
-        for row in stride(from: maxRow, through: minRow, by: -1) {
-            guard document.rowCount > 1 else { break }
-            document.deleteRow(row)
-        }
+        document.deleteRows(minRow...maxRow)
         let newRow = min(minRow, document.rowCount - 1)
         selection = .single(row: newRow, column: sel.anchorColumn)
+        extraSelections.removeAll()
     }
 
     // MARK: - Column Operations
@@ -640,16 +647,16 @@ final class TabState: Identifiable {
         let minCol = max(0, sel.minColumn)
         let maxCol = min(sel.maxColumn, document.columnCount - 1)
         guard minCol <= maxCol else { return }
-        // Delete from right to left so indices stay valid
-        for col in stride(from: maxCol, through: minCol, by: -1) {
-            guard document.columnCount > 1 else { break }
-            if col >= 0, col < columnWidths.count {
-                columnWidths.remove(at: col)
-            }
-            document.deleteColumn(col)
+        if minCol == 0, maxCol == document.columnCount - 1 {
+            columnWidths = [Self.defaultColumnWidth]
+        } else if maxCol < columnWidths.count {
+            columnWidths.removeSubrange(minCol...maxCol)
         }
+        document.deleteColumns(minCol...maxCol)
+        syncColumnWidths()
         let newCol = min(minCol, document.columnCount - 1)
         selection = .single(row: sel.anchorRow, column: newCol)
+        extraSelections.removeAll()
     }
 
     // MARK: - Move Operations
@@ -890,6 +897,3 @@ final class AppState {
         }
     }
 }
-
-
-
